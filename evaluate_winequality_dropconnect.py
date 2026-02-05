@@ -16,15 +16,17 @@ from src.explainer.explainer import (
     LimeExplainer,
 )
 from src.utils.utils_data_formatter import save_dict_to_text
+from src.evaluation.evaluation_utils import evaluate_uncertainty_attributions
+
 from src.models.models_dropconnect import UQMCDropconnectRegressor
 from src.models.models_dropout import UQMCDropoutRegressor
 from src.models.props import WineQualityModelProps, ModelTrainingProps
+from src.uncertainty_attributions.empirical_xuq import EmpiricalXUQGenerator
+
 from src.evaluation.complexity import Complexity
 from src.evaluation.feature_flipping import FeatureFlipping
 from src.evaluation.relative_rank_improvement import RelativeRankImprovement
 from src.evaluation.repeatability import Repeatability
-
-from src.uncertainty_attributions.empirical_xuq import EmpiricalXUQGenerator
 from src.evaluation.uncertainty_conveyance_similarity import UncertaintyConveyanceSimilarity
 from src.evaluation.relative_input_stability import RelativeInputStability
 
@@ -41,39 +43,15 @@ warnings.filterwarnings(
 )
 
 
-def evaluate_uncertainty_attributions(
-    uncertainty_attributions,
-    uq_model,
-    unpacked_dataset,
-    base_model,
-    ensemble,
-    pred_tests,
-    explainer,
-    uq_strategy,
-    mc_passes,
-    nr_testsamples,
-    model_props,
-    X_test,
-    empirical_xuq_generator,
-):
-    """evaluate the generated uncertainty attributions w.r.t. the specified metrics
+if __name__ == "__main__":
+    seed = 42
+    random.seed(seed)
+    now = datetime.now()
+    start_overall = time.time()
 
-    Args:
-        uncertainty_attributions: uncertainty_attributions
-        UQ_model: base trained model with uq
-        unpacked_dataset: tuple of split dataset
-        ensemble: list of torch models
-        pred_tests: test set predictions
-        explainer: xuq explanation generator
-        uq_strategy: uncertainty quantification strategy
-        mc_passes: Monte Carlo passes
-        nr_testsamples: Number of test samples
-        model_props: Model properties
+    date_str = now.strftime("%Y-%m-%d")
+    time_str = now.strftime("%H-%M-%S")
 
-    Returns:
-        Tuple(dict, dict): A tuple containing two dictionaries, one with aggregated metric values and one with all values, for example, for complexity, the first dict includes the average complexity over all samples, while the second dict includes the complexity value for each sample
-    """
-    metric_values = {}
     metric_list = [
         Complexity(),
         FeatureFlipping(baseline="kde"),
@@ -83,35 +61,6 @@ def evaluate_uncertainty_attributions(
         RelativeRankImprovement(ood_strategy="sigma_based", img=False, sample_percentage=1),
     ]
 
-    for metric in metric_list:
-        metrics, values = metric.evaluate_uncertainty_attributions(
-            uncertainty_attributions=uncertainty_attributions,
-            uq_model=uq_model,
-            unpacked_dataset=unpacked_dataset,
-            explainer=explainer,
-            uq_strategy=uq_strategy,
-            pred_tests=pred_tests,
-            base_model=base_model,
-            ensemble=ensemble,
-            mc_passes=mc_passes,
-            nr_testsamples=nr_testsamples,
-            model_props=model_props,
-            X_test=X_test,
-            empirical_xuq_generator=empirical_xuq_generator,
-        )
-        metric_values[metric.get_name()] = metrics
-        metric_values[metric.get_name()]["all_values"] = values
-    return metric_values
-
-
-if __name__ == "__main__":
-    seed = 42
-    random.seed(seed)
-    now = datetime.now()
-    start_overall = time.time()
-
-    date_str = now.strftime("%Y-%m-%d")
-    time_str = now.strftime("%H-%M-%S")
     analyse_for_samples_with_top_uncertainty = False
     analyse_for_samples_with_low_uncertainty = False
 
@@ -241,6 +190,7 @@ if __name__ == "__main__":
             )
             evaluation_metrics = evaluate_uncertainty_attributions(
                 uncertainty_attributions=uncertainty_attributions,
+                metric_list=metric_list,
                 uq_model=uq_model,
                 unpacked_dataset=unpacked_dataset,
                 explainer=explainer,

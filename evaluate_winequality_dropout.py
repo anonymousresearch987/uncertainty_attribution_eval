@@ -1,33 +1,35 @@
 import torch
 import time
 import os
-import numpy as np
+import pickle
 import warnings
 import random
-import pickle
+import numpy as np
 from datetime import datetime
 
-from datasets import mnist
+from datasets import winequality
 from src.explainer.explainer import (
+    ShapleyValueSamplingExplainer,
     InputXGradientExplainer,
     IntegratedGradientsExplainer,
     LRPExplainer,
-    GradientSHAPExplainer,
+    LimeExplainer,
 )
 from src.utils.utils_data_formatter import save_dict_to_text
 from src.evaluation.evaluation_utils import evaluate_uncertainty_attributions
 
-from src.models.models_dropout import UQMCDropoutCNNClassifier
-from src.models.models_dropconnect import UQMCDropconnectCNNClassifier
-from src.models.props import MNISTModelProps, ModelTrainingProps
+from src.models.models_dropconnect import UQMCDropconnectRegressor
+from src.models.models_dropout import UQMCDropoutRegressor
+from src.models.props import WineQualityModelProps, ModelTrainingProps
 from src.uncertainty_attributions.empirical_xuq import EmpiricalXUQGenerator
 
 from src.evaluation.complexity import Complexity
 from src.evaluation.feature_flipping import FeatureFlipping
 from src.evaluation.relative_rank_improvement import RelativeRankImprovement
+from src.evaluation.repeatability import Repeatability
 from src.evaluation.uncertainty_conveyance_similarity import UncertaintyConveyanceSimilarity
 from src.evaluation.relative_input_stability import RelativeInputStability
-from src.evaluation.repeatability import Repeatability
+
 
 warnings.filterwarnings(
     "ignore",
@@ -45,7 +47,6 @@ if __name__ == "__main__":
     seed = 42
     random.seed(seed)
     now = datetime.now()
-    print("Starting experiment at ", now.strftime("%Y-%m-%d %H:%M:%S"))
     start_overall = time.time()
 
     date_str = now.strftime("%Y-%m-%d")
@@ -53,19 +54,17 @@ if __name__ == "__main__":
 
     metric_list = [
         Complexity(),
-        FeatureFlipping(baseline="gaussian_blur"),
+        FeatureFlipping(baseline="kde"),
+        Repeatability(),
         UncertaintyConveyanceSimilarity(),
         RelativeInputStability(),
-        Repeatability(),
-        RelativeRankImprovement(
-            ood_strategy="patch_inversion", img=True, sample_percentage=25 / 784
-        ),
+        RelativeRankImprovement(ood_strategy="sigma_based", img=False, sample_percentage=1),
     ]
     analyse_for_samples_with_top_uncertainty = False
     analyse_for_samples_with_low_uncertainty = False
 
     mc_passes = 50
-    uq_strategy = "dropconnect"  # "dropout" or "dropconnect"
+    uq_strategy = "dropout"  # "dropout" or "dropconnect"
     n_folds = 5
 
     nr_testsamples = 100
@@ -73,29 +72,31 @@ if __name__ == "__main__":
     if uq_strategy not in ["dropout", "dropconnect"]:
         raise AssertionError(f"UQ strategy {uq_strategy} not implemented.")
 
-    folds_dict = mnist.MNISTDataset().serve_dataset_as_folds(
-        k_folds=n_folds, val_set_required=False, random_state=seed
+    folds_dict = winequality.WineQualityDataset().serve_dataset_as_folds(
+        n_folds, val_set_required=True
     )
     fold_uncertainty_attributions = {}
     fold_uncertainty_metrics = {}
 
-    for key, _ in folds_dict.items():
+    for key, values in folds_dict.items():
         split_data = folds_dict[key]
-        X_train, X_test, y_train, y_test = (
+        X_train, X_test, X_val, y_train, y_test, y_val = (
             split_data["X_train"],
             split_data["X_test"],
+            split_data["X_val"],
             split_data["y_train"],
             split_data["y_test"],
+            split_data["y_val"],
         )
-
         #########################################################
 
-        model_props = MNISTModelProps(
+        model_props = WineQualityModelProps(
             ensemble_path="",
             state_dict_path=None,
             preprocessor_path=None,
             target_preprocessor_path=None,
-            output_size=10,
+            input_size=11,
+            output_size=1,
             hidden_layer_1=50,
             hidden_layer_2=50,
             hidden_layer_3=None,
@@ -103,19 +104,19 @@ if __name__ == "__main__":
             hidden_layer_5=None,
             hidden_layer_6=None,
             drop_prob=0.1,
-            forward_passes=mc_passes,
+            forward_passes=50,
             last_hidden_layer=50,
-            layers_to_perturb=1,
+            layers_to_perturb=None,
             force_cpu=True,
-            is_classification=True,
+            is_classification=False,
         )
 
         training_props = ModelTrainingProps(
             initialisation_strategy=None,
-            epochs=10,
+            epochs=40,
             learn_rate=0.001,
             optimizer="Adam",
-            loss_function="CEL",
+            loss_function="MSE",
             weight_decay=0.0,
             early_stopping_patience=None,
             lr_scheduler_factor=0.0,
@@ -125,25 +126,26 @@ if __name__ == "__main__":
 
         ############################################################################################
         explainers = [
+            LRPExplainer(gamma=0.3),
             IntegratedGradientsExplainer(),
+            ShapleyValueSamplingExplainer(X_train=X_train, nsamples=25),
             InputXGradientExplainer(),
-            GradientSHAPExplainer(),
-            LRPExplainer(gamma=0.3, cnn=True),
+            LimeExplainer(num_samples=25),
         ]
         metrics_for_all_explainers = {}
 
+        all_uncertainty_attributions = {}
         if uq_strategy == "dropout":
-            uq_model = UQMCDropoutCNNClassifier(
-                model_props=model_props,
-                training_props=training_props,
-            )
+            uq_model = UQMCDropoutRegressor(model_props=model_props, training_props=training_props)
+            print("Using the Dropout Model")
         elif uq_strategy == "dropconnect":
-            uq_model = UQMCDropconnectCNNClassifier(
-                model_props=model_props,
-                training_props=training_props,
+            uq_model = UQMCDropconnectRegressor(
+                model_props=model_props, training_props=training_props
             )
+            print("Using the DropConnect Model")
 
-        train, val, test = mnist.MNISTDataset().serve_dataset_as_dataloader()
+        train, val, test = winequality.WineQualityDataset().serve_dataset_as_dataloader()
+
         uq_model.fit(
             train,
             val,
@@ -153,37 +155,37 @@ if __name__ == "__main__":
             uq_model.model,
             uq_model.get_ensemble(save_model=False, ensemble_path=None),
         )
-        if analyse_for_samples_with_top_uncertainty or analyse_for_samples_with_low_uncertainty:
-            test_predictive_uncertainty = uq_model.forward_uq(X_test)["variance"].detach().numpy()
-            variance_ordered_list = np.argsort(-test_predictive_uncertainty)
 
-            if analyse_for_samples_with_top_uncertainty:
-                X_test, y_test = (
-                    X_test[variance_ordered_list[:nr_testsamples]],
-                    y_test[variance_ordered_list[:nr_testsamples]],
-                )
-            elif analyse_for_samples_with_low_uncertainty:
-                X_test, y_test = (
-                    X_test[variance_ordered_list[-1 * nr_testsamples :]],
-                    y_test[variance_ordered_list[-1 * nr_testsamples :]],
-                )
+        test_predictive_uncertainty = uq_model.forward_uq(X_test)["variance"].detach().numpy()
+
+        variance_ordered_list = np.argsort(-test_predictive_uncertainty)
+        if analyse_for_samples_with_top_uncertainty:
+            X_test, y_test = (
+                X_test[variance_ordered_list[:nr_testsamples]],
+                y_test[variance_ordered_list[:nr_testsamples]],
+            )
+        elif analyse_for_samples_with_low_uncertainty:
+            X_test, y_test = (
+                X_test[variance_ordered_list[-1 * nr_testsamples :]],
+                y_test[variance_ordered_list[-1 * nr_testsamples :]],
+            )
         else:
             X_test, y_test = X_test[:nr_testsamples], y_test[:nr_testsamples]
+        if len(X_test.shape) >= 3:
+            X_test = X_test.squeeze()
+        if len(y_test.shape) >= 3:
+            y_test = y_test.squeeze()
         unpacked_dataset = (X_train, X_test, y_train, y_test)
-
-        pred_tests = uq_model.forward_uq(X_test)["predicted_classes"]
-
         ############################################################
-        uncertainty_attributions_for_explainer = {}
         for explainer in explainers:
-            empirical_xuq = EmpiricalXUQGenerator(
-                explainer=explainer, uq_strategy=uq_strategy, mc_passes=mc_passes
-            )
+            empirical_xuq = EmpiricalXUQGenerator(explainer, uq_strategy)
             print(f"STARTING {explainer.get_name()}")
             start = time.time()
+            uncertainty_attributions_for_explainer = {}
+            metrics_for_explainer = {}
 
-            uncertainty_attributions, _ = empirical_xuq.compute_uncertainty_attr(
-                nr_testsamples, X_test, pred_tests, ensemble
+            uncertainty_attributions, mean_explanations = empirical_xuq.compute_uncertainty_attr(
+                nr_testsamples, X_test, pred_test=None, ensemble=ensemble
             )
             evaluation_metrics = evaluate_uncertainty_attributions(
                 uncertainty_attributions=uncertainty_attributions,
@@ -193,7 +195,7 @@ if __name__ == "__main__":
                 explainer=explainer,
                 uq_strategy=uq_strategy,
                 mc_passes=mc_passes,
-                pred_tests=pred_tests,
+                pred_tests=None,  # prediction set to None, if the model is a regression model it doesn't need a target oriented explanation
                 base_model=model,
                 ensemble=ensemble,
                 nr_testsamples=nr_testsamples,
@@ -220,12 +222,13 @@ if __name__ == "__main__":
 
         fold_uncertainty_attributions[key] = uncertainty_attributions_for_explainer
         fold_uncertainty_metrics[key] = metrics_for_all_explainers
+
         evaluation_metrics_model = uq_model.evaluate_uq(test, calibration_metrics=True)
         fold_uncertainty_metrics[key]["model_evaluation"] = evaluation_metrics_model
 
     stem_dir = os.path.join(
         "results",
-        "mnist",
+        "winequality",
         date_str,
         time_str,
         "evaluation",
@@ -241,13 +244,13 @@ if __name__ == "__main__":
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
-    result_save_path_pkl = save_dir + "/{}.pkl".format("cross_val_metrics_mnist")
+    result_save_path_pkl = save_dir + "/{}.pkl".format("cross_val_metrics_winequality")
 
     with open(result_save_path_pkl, "wb") as f:
         pickle.dump(fold_uncertainty_metrics, f)
-    save_dict_to_text(fold_uncertainty_metrics, save_dir, "cross_val_metrics_mnist")
+    save_dict_to_text(fold_uncertainty_metrics, save_dir, "cross_val_metrics_winequality")
 
-    print("Metric Experiment on {} done".format("mnist"))
+    print("Metric Experiment on {} done".format("winequality"))
     end_overall = time.time()
     print(
         f" Overall time to evaluate uncertainty attributions: {str((end_overall - start_overall) / 60)} minutes"

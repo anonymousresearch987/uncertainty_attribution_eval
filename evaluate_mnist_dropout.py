@@ -61,11 +61,12 @@ if __name__ == "__main__":
             ood_strategy="patch_inversion", img=True, sample_percentage=25 / 784
         ),
     ]
+
     analyse_for_samples_with_top_uncertainty = False
     analyse_for_samples_with_low_uncertainty = False
 
     mc_passes = 50
-    uq_strategy = "dropconnect"  # "dropout" or "dropconnect"
+    uq_strategy = "dropout"  # "dropout" or "dropconnect"
     n_folds = 5
 
     nr_testsamples = 100
@@ -102,10 +103,10 @@ if __name__ == "__main__":
             hidden_layer_4=None,
             hidden_layer_5=None,
             hidden_layer_6=None,
-            drop_prob=0.1,
+            drop_prob=0.2,
             forward_passes=mc_passes,
             last_hidden_layer=50,
-            layers_to_perturb=1,
+            layers_to_perturb=None,
             force_cpu=True,
             is_classification=True,
         )
