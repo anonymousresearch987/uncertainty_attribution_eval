@@ -155,7 +155,7 @@ if __name__ == "__main__":
             hidden_layer_4=None,
             hidden_layer_5=None,
             hidden_layer_6=None,
-            drop_prob=0.1,
+            drop_prob=0.3,
             forward_passes=50,
             last_hidden_layer=50,
             layers_to_perturb=1,
