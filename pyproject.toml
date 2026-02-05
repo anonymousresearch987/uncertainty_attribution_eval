@@ -38,6 +38,7 @@ interpret = "^0.6.1"
 shap = "^0.45.0"
 lime = "^0.2.0.1"
 tensorflow = "^2.17.0"
+zennit = "0.5.1"
 
 [build-system]
 requires = ["poetry-core"]
