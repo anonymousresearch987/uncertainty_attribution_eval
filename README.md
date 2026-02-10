@@ -22,7 +22,7 @@ The evaluation results are saved as pickle and text files.
 
 Additionally, the dropout/dropconnect probability can be tuned for MNIST and Winequality in `calibrate_p_for_uq_mnist.py` and `calibrate_p_for_uq_winequality.py`, respectively.
 
-The implementations of all metrics from the proposed evaluation framework can be found in src/evaluation.
+The implementations of all metrics from the proposed evaluation framework can be found in `src/evaluation`. The analyses of the results as well as the sanity checks can be found in the `notebooks` folder.
 
 ## Data
 The Wine Quality data can be downloaded from https://archive.ics.uci.edu/dataset/186/wine+quality (red and wine). It should be stored in the folder `datasets/Wine Quality` as `winequality-red_komma.csv` and `winequality-white_komma.csv`. MNIST (http://yann.lecun.com/exdb/mnist/) data is downloaded automatically from torchvision, if `download = True` in `create_data()` in datasets/mnist.py.
