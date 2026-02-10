@@ -12,10 +12,10 @@ All dependencies are included in the `pyproject.toml` and can be installed using
 
 ## How to run 
 
-The code to execute the experiments is contained in `evaluate_mnist.py` and `evaluate_winequality.py`, to evaluate uncertainty attributions for MNIST and Winequality datasets, respectively. 
+The code to execute the experiments is contained in `evaluate_mnist_dropout.py/evaluate_mnist_dropconnect.py` and `evaluate_winequality_dropout.py/evaluate_winequality_dropconnect.py`, to evaluate uncertainty attributions for MNIST and Winequality datasets, respectively. These files include all the hyperparameter specifications from the paper.
 
 Both scripts train a neural network and generate and evaluate uncertainty attributions based on
-    - the specified `uq_strategy` ("dropout"/"dropconnect") and dropout/dropconnect probability
+    - the specified `uq_strategy` ("dropout"/"dropconnect") and dropout/dropconnect probability from the paper
     - all selected feature attribution methods (explainers), and 
     - all specified metrics (complexity, feature flipping, uncertainty conveyance similarity, relative input stability, repeatability, relative rank improvement).  
 The evaluation results are saved as pickle and text files. 
